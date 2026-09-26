@@ -1,0 +1,16 @@
+services:
+  fleet:
+    build: .
+    container_name: solana-fleet-panel
+    ports:
+      - "127.0.0.1:3777:3777"
+    environment:
+      - CLUSTER=mainnet
+      - BIND_HOST=0.0.0.0
+    volumes:
+      # весь проект смонтирован: wallets.json, .env, pool.*.json, params.json,
+      # логи и статистика живут на хосте и переживают пересоздание контейнера
+      - .:/app
+      # кроме host node_modules (маковские бинарники) — внутри контейнера свои
+      - /app/node_modules
+    restart: unless-stopped

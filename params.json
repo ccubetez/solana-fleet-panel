@@ -1,0 +1,10 @@
+{
+  "bots": 6,
+  "minSwap": 1,
+  "maxSwap": 5,
+  "minDelay": 15,
+  "maxDelay": 60,
+  "buyPct": 0.53,
+  "fundGas": 0.02,
+  "watchdog": true
+}

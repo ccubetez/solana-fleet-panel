@@ -1,0 +1,23 @@
+node_modules/
+.env
+
+# private keys & runtime state — NEVER commit
+wallets.json
+wallets.backup.*.json
+rpc_keys.json
+pool.json
+pool.mainnet.json
+pool.devnet.json
+pools.json
+panel_lang.json
+
+# logs & stats
+sessions.json
+ledger.jsonl
+actions.log
+swaps.*.log
+stats.*.json
+fleet_console.log
+price_history.jsonl
+
+.DS_Store

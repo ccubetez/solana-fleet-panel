@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fleet Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:#0b0f14; --card:#11161d; --card2:#151c25; --border:#1f2a36; --fg:#e6edf3; --dim:#7d8b99;
+    --grn:#00c983; --red:#ff5266; --acc:#58a6ff; --accDim:#1c3350;
+    --up:#00ff88; --down:#ff4455;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system, system-ui, sans-serif; padding: 16px 20px 30px; }
+  h1 { font-size: 16px; margin-bottom: 16px; display:flex; align-items:center; gap:10px; font-weight: 600; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); }
+  .dot.on { background: var(--grn); box-shadow: 0 0 8px var(--grn); }
+  .sect { font-size: 10px; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; margin: 18px 2px 8px; }
+  .sect:first-of-type { margin-top: 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: var(--fg); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2::before { content:''; width: 3px; height: 12px; border-radius: 2px; background: var(--acc); flex: none; }
+  .card h2 .right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 82px; text-align: center; background: var(--card2); border-radius: 8px; padding: 8px 4px; }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .stat span { color: var(--dim); font-size: 10px; }
+  label { color: var(--dim); font-size: 11px; display: block; margin-bottom: 3px; }
+  input, select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font: inherit; font-size: 13px; }
+  input:focus, select:focus { outline: none; border-color: var(--acc); }
+  input[type=number] { width: 78px; }
+  input[type=range] { flex: 1; accent-color: var(--acc); padding: 0; border: 0; }
+  input[type=checkbox] { accent-color: var(--acc); }
+  .pct { font-size: 19px; font-weight: 700; width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+  button { border: 1px solid var(--border); border-radius: 8px; padding: 8px 15px; font: 600 13px inherit; cursor: pointer; background: var(--card2); color: var(--fg); transition: filter .12s; }
+  button:hover:not(:disabled) { filter: brightness(1.25); }
+  button:disabled { opacity: .35; cursor: default; }
+  .primary { background: var(--grn); border-color: transparent; color: #03130c; }
+  .danger { background: #33161b; border-color: #5a232b; color: var(--red); }
+  .rm { background: none; border: none; color: var(--red); padding: 2px 8px; font-size: 14px; }
+  .mono { font: 12px ui-monospace, Menlo, monospace; }
+  .dim { color: var(--dim); font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { padding: 5px 6px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  td:first-child, th:first-child { text-align: left; }
+  tr:last-child td { border-bottom: none; }
+  #log, #actions, #ledger { font: 11px/1.6 ui-monospace, Menlo, monospace; color: var(--dim); max-height: 170px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  #log .b { color: var(--grn); } #log .s { color: var(--red); }
+  .ok { color: var(--grn); } .bad { color: var(--red); }
+  .copy { cursor: pointer; } .copy:hover { color: var(--acc); }
+  .field { margin-bottom: 12px; }
+  .pf { padding: 2px 0; }
+  #langSel { margin-left: auto; width: 92px; }
+  .wrap { display: flex; gap: 14px; align-items: flex-start; }
+  .col-l { flex: 0 0 480px; min-width: 0; }
+  .col-r { flex: 1; min-width: 340px; position: sticky; top: 12px; }
+  #chart { width: 100%; height: 320px; border-radius: 8px; overflow: hidden; }
+  .tf-btns button { padding: 3px 10px; font-size: 11px; border-radius: 6px; }
+  .tf-btns button.sel { background: var(--acc); border-color: var(--acc); color: #06121f; }
+  .price-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .price-head .sym { font-weight: 700; font-size: 15px; }
+  .price-head .val { font: 600 15px ui-monospace, Menlo, monospace; }
+  @media (max-width: 1100px) { .wrap { flex-direction: column; } .col-l { flex: 1 1 auto; width: 100%; } .col-r { width: 100%; position: static; } }
+  #overlay { display: none; position: fixed; inset: 0; background: rgba(11,15,20,0.92); z-index: 1000;
+    align-items: center; justify-content: center; flex-direction: column; gap: 16px; cursor: wait; }
+  #overlay.show { display: flex; }
+  .spinner { width: 46px; height: 46px; border: 4px solid var(--border); border-top-color: var(--acc);
+    border-radius: 50%; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<h1><span class="dot" id="dot"></span> <span data-t="title">Fleet Control</span> <span class="dim" id="cluster"></span>
+  <select id="langSel"><option value="en">English</option><option value="ru">Русский</option></select>
+</h1>
+<div id="overlay"><div class="spinner"></div><div id="overlayText" style="font-size:14px">…</div></div>
+<div class="wrap"><div class="col-l">
+
+<div class="sect" data-t="secTrade">Trading</div>
+<div class="card">
+  <h2><span data-t="control">Control</span>
+    <span class="right">
+      <label style="display:flex;align-items:center;gap:5px;color:var(--dim);font-size:11px;margin:0">
+        <input type="checkbox" id="watchdog"> watchdog
+      </label>
+    </span>
+  </h2>
+  <div class="field"><div class="row">
+    <input type="range" id="buyPct" min="0" max="100" step="1">
+    <div class="pct" id="buyPctV">50%</div>
+  </div><div class="dim" data-t="buyHint">buy share · 60%+ = upward pressure</div></div>
+  <div class="field"><div class="row">
+    <div><label><span data-t="swapMin">swap min</span>, <span class="swapQ dim"></span></label><input type="number" id="minSwap" step="0.5" min="0.1"></div>
+    <div><label><span data-t="swapMax">swap max</span>, <span class="swapQ dim"></span></label><input type="number" id="maxSwap" step="0.5" min="0.5"></div>
+    <div><label data-t="delayMin">delay min s</label><input type="number" id="minDelay" step="5" min="5"></div>
+    <div><label data-t="delayMax">delay max s</label><input type="number" id="maxDelay" step="5" min="10"></div>
+  </div><div class="dim" data-t="hotHint">applied live, no restart needed</div></div>
+  <div class="row" style="margin-bottom:12px">
+    <button id="btnStart" class="primary" data-t="start">▶ Start</button>
+    <button id="btnStop" class="danger" data-t="stop">■ Stop</button>
+    <span id="msg" class="dim"></span>
+  </div>
+  <div class="row" style="gap:8px">
+    <div class="stat"><b id="swaps">0</b><span data-t="sSwaps">swaps</span></div>
+    <div class="stat"><b id="vol">0</b><span data-t="sVol">volume</span></div>
+    <div class="stat"><b id="ratio">—</b><span>buy/sell</span></div>
+    <div class="stat"><b id="uptime">—</b><span data-t="sMin">min</span></div>
+    <div class="stat"><b id="fees">—</b><span data-t="sFees">~fees</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2><span data-t="session">Session</span></h2>
+  <div class="row">
+    <button id="btnSweep" class="danger" data-t="sweep">End session & collect</button>
+  </div>
+  <div id="pf" style="margin-top:8px"></div>
+</div>
+
+<div class="sect" data-t="secMoney">Funds</div>
+<div class="card">
+  <h2><span data-t="funders">Funders</span> <span class="right"><button id="btnAddFunder" data-t="add">+ Add</button></span></h2>
+  <table><thead><tr><th data-t="activeH">act</th><th data-t="nameH">name</th><th data-t="addr">address</th><th>SOL</th><th id="fqH">quote</th><th id="ftH">token</th><th></th></tr></thead>
+  <tbody id="funders"></tbody></table>
+  <div id="funderAdd" style="display:none;margin-top:10px">
+    <div class="row">
+      <input id="nfName" data-t-ph="nfNamePh" placeholder="label (e.g. main)" style="width:120px">
+      <input id="nfKey" class="mono" data-t-ph="nfKeyPh" placeholder="base58 private key (empty = generate)" style="flex:1">
+      <button id="btnNFAdd" data-t="add">+ Add</button>
+    </div>
+    <div class="dim" data-t="nfHint">generated key is shown ONCE — save it</div>
+    <div id="nfResult" class="mono" style="word-break:break-all;margin-top:6px"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2><span data-t="deploy">Deploy budget</span></h2>
+  <div class="field"><div class="row">
+    <input type="range" id="deployPct" min="1" max="100" step="1" value="50">
+    <div class="pct" id="deployPctV">50%</div>
+  </div><div class="dim" data-t="deployHint">% of funder SOL → fixed gas, then 70% quote / 30% token via Jupiter, split evenly</div></div>
+  <div class="dim" id="deployInfo" style="margin-bottom:8px">—</div>
+  <div class="row">
+    <button id="btnDeploy" class="primary" data-t="distBtn">Distribute</button>
+  </div>
+  <div class="dim" id="distSrc">—</div>
+</div>
+
+<div class="card">
+  <h2><span data-t="bots">Bot wallets</span> <span class="right"><button id="btnAddBot" data-t="add">+ Add</button></span></h2>
+  <table><thead><tr><th data-t="addr">address</th><th>SOL</th><th id="qH">quote</th><th id="tH">token</th><th></th></tr></thead>
+  <tbody id="bots"></tbody></table>
+</div>
+
+<div class="card">
+  <h2 data-t="ledger">Expenses & income</h2>
+  <div class="row" style="gap:8px;margin-bottom:8px">
+    <div class="stat"><b id="lSolIn" class="ok">—</b><span data-t="lSolIn">SOL in</span></div>
+    <div class="stat"><b id="lSolOut" class="bad">—</b><span data-t="lSolOut">SOL out</span></div>
+    <div class="stat"><b id="lQIn" class="ok">—</b><span id="lQInS">quote in</span></div>
+    <div class="stat"><b id="lQOut" class="bad">—</b><span id="lQOutS">quote out</span></div>
+    <div class="stat"><b id="lFees">—</b><span data-t="lFees">~fees</span></div>
+  </div>
+  <div id="ledger">—</div>
+</div>
+
+</div><!-- /col-l -->
+<div class="col-r">
+
+<div class="sect" data-t="secMarket">Market</div>
+<div class="card">
+  <h2><span id="chartSym">—</span>
+    <span class="right tf-btns">
+      <button data-tf="1m">1m</button><button data-tf="5m" class="sel">5m</button><button data-tf="15m">15m</button><button data-tf="1h">1h</button>
+    </span>
+  </h2>
+  <div class="price-head">
+    <span class="val" id="priceNow">—</span>
+    <span id="priceChg" class="dim"></span>
+  </div>
+  <div id="chart"></div>
+  <div class="dim" style="margin-top:6px"><span style="color:var(--up)">▲</span> buy · <span style="color:var(--down)">▼</span> sell · <span style="color:#0aa">▪</span> <span data-t="vol2">volume</span></div>
+</div>
+
+<div class="card">
+  <h2 data-t="sessions">Sessions</h2>
+  <table><thead><tr><th data-t="started">started</th><th data-t="sSwaps2">swaps</th><th data-t="sVol2">volume</th><th>Δ price</th><th data-t="sFees2">~fees</th></tr></thead>
+  <tbody id="sessions"></tbody></table>
+</div>
+
+<div class="sect" data-t="secInfra">Infrastructure</div>
+<div class="card">
+  <h2 data-t="pair">Trading pair</h2>
+  <table><thead><tr><th data-t="activeH">act</th><th data-t="nameH">name</th><th data-t="addr">address</th><th></th></tr></thead>
+  <tbody id="poolsList"></tbody></table>
+  <div class="row" style="margin-top:8px">
+    <input id="newPool" data-t-ph="poolPh" placeholder="Raydium CPMM pool address…" style="flex:1" class="mono">
+    <button id="btnAddPool" data-t="addPool">+ Add</button>
+  </div>
+  <div class="dim" style="margin-top:6px" data-t="poolHint">pool switch = auto fleet restart · Raydium CPMM only</div>
+</div>
+
+<div class="card">
+  <h2>Helius RPC</h2>
+  <table><thead><tr><th data-t="activeH">act</th><th data-t="nameH">name</th><th>key</th><th></th></tr></thead>
+  <tbody id="rpcKeys"></tbody></table>
+  <div class="row" style="margin-top:8px">
+    <input id="rpcName" data-t-ph="rpcNamePh" placeholder="label" style="width:100px">
+    <input id="rpcKey" class="mono" style="flex:1" data-t-ph="rpcKeyPh" placeholder="Helius API key (uuid)…">
+    <button id="btnRpcTest" data-t="test">Test</button>
+    <button id="btnRpcSave" data-t="add">+ Add</button>
+  </div>
+  <div class="dim" id="rpcStatus" style="margin-top:6px">—</div>
+</div>
+
+<div class="sect" data-t="secData">Data</div>
+<div class="card"><h2 data-t="trades">Trades</h2><div id="log">—</div></div>
+<div class="card"><h2 data-t="actions">Panel actions</h2><div id="actions">—</div></div>
+
+</div><!-- /col-r -->
+</div><!-- /wrap -->
+
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+// ── i18n ──
+const I18N = {
+  en: {
+    title:'Fleet Control', secTrade:'Trading', secMoney:'Funds', secMarket:'Market', secInfra:'Infrastructure', secData:'Data',
+    sSwaps:'swaps', sVol:'volume', sMin:'min', sFees:'~fees',
+    control:'Control', buyHint:'buy share · 60%+ = upward pressure',
+    swapMin:'swap min', swapMax:'swap max', delayMin:'delay min s', delayMax:'delay max s',
+    hotHint:'applied live, no restart needed', start:'▶ Start', stop:'■ Stop',
+    pair:'Trading pair', poolPh:'Raydium CPMM pool address…', addPool:'+ Add',
+    poolHint:'pool switch = auto fleet restart · Raydium CPMM only',
+    dist:'Distribute (total → even shares)', distSolL:'SOL total', distTotal:'total', distTotal2:'total',
+    distBtn:'Distribute', distHint:'tops up to equal shares · quote shortfall bought via Jupiter · token from funder stock only',
+    bots:'Bot wallets', addBot:'+ Add', addr:'address',
+    session:'Session', preflight:'Preflight check', fund:'Fund up', sweep:'End session & collect',
+    ledger:'Expenses & income', lSolIn:'SOL in', lSolOut:'SOL out', lFees:'~network fees',
+    trades:'Trades', actions:'Panel actions',
+    perBot:'per bot', funderHas:'funder', enterSums:'enter amounts',
+    confirmDist:(n,s,q,t,qs,ts)=>`Distribute evenly to ${n} bots:\n${s} SOL + ${q} ${qs} + ${t} ${ts}?`,
+    distributing:'distributing…', distDone:(d,s,q,t)=>`done: ${d} bots × (${s} SOL / ${q} / ${t})`,
+    confirmRm:(n)=>`Remove bot ${n}? Balances go to funder (tokens → SOL last).`,
+    botAdded:(i)=>`bot ${i} added — press "Fund up"`,
+    confirmPool:'Switch pool? Fleet will be restarted.',
+    poolChanged:'pool switched, fleet restarted', poolChanged2:'pool switched',
+    detecting:'detecting pool tokens…', poolAdded:(n)=>`added: ${n}`,
+    checking:'checking…', funding:'funding… (conversion + distribution, up to a minute)',
+    funded:(n)=>`funded bots: ${n}`,
+    confirmSweep:'End session: stop fleet and collect ALL balances to funder (no selling)?',
+    sweeping:'sweeping…', swept:(n)=>`collected from ${n} wallets`,
+    starting:'starting…', startAnyway:'Preflight failed. Start anyway?',
+    pid:(p)=>`pid ${p}`,
+    pfNames:{'Пул':'Pool','Газ у ботов':'Bot gas','Quote у ботов':'Bot quote','RPC':'RPC'},
+    ledgerTypes:{'расход: конверсия':'expense: conversion','расход: фандинг':'expense: funding','расход: распределение':'expense: distribution','доход: сбор':'income: collect','доход: сбор (удаление)':'income: collect (removal)','сессия':'session'},
+    in:'in', out:'out',
+    funders:'Funders', add:'+ Add', activeH:'act', nameH:'name',
+    nfNamePh:'label (e.g. main)', nfKeyPh:'base58 private key (empty = generate new)',
+    nfHint:'generated key is shown ONCE — save it',
+    test:'Test', save:'Save', rpcKeyPh:'Helius API key (uuid)…',
+    rpcCur:(m)=>`current key: ${m}`, rpcNone:'no key set', rpcOk:(l)=>`✓ works, ${l}ms — not saved yet`,
+    rpcSaved:(l)=>`✓ saved, ${l}ms — fleet picks it up on next start`,
+    srcFrom:(n,s)=>`source: ${n} (${s})`,
+    rmFAsk:(n)=>`Destination address for ${n} funds:`,
+    rmFConfirm:(n,d)=>`Remove funder ${n}? All funds → ${d}\n(tokens → close ATA → SOL last)`,
+    rmActive:'active funder cannot be removed — switch active first',
+    genKey:(k)=>`SAVE THIS PRIVATE KEY (shown once):\n${k}`,
+    nfAdded:(n)=>`funder ${n} added`,
+    sessions:'Sessions', started:'started', sSwaps2:'swaps', sVol2:'vol', sFees2:'~fees',
+    deploy:'Deploy budget', deployHint:'% of funder SOL → fixed gas, then 70% quote / 30% token via Jupiter, split evenly',
+    deployConfirm:(p)=>`Deploy ${p}% of funder SOL? Tokens are bought via Jupiter and split evenly across all bots.`,
+    deploying:'deploying… (conversions + distribution)',
+    deployDone:(d,s,q,tk)=>`done: ${d} bots × (${s} SOL / ${q} quote / ${tk} token)`,
+    watchdog:'watchdog (auto-restart)', rpcNamePh:'label', keyAdded:(n)=>`key ${n} added`,
+    rmKey:'remove inactive key?', noPoints:'collecting price data…', vol2:'volume',
+    exportKeyConfirm:'Show private key (base58)? Anyone with it controls the wallet.',
+    sellAllConfirm:(n,q,qs,tk,ts)=>`Sell ALL tokens on ${n}?\n${q} ${qs} + ${tk} ${ts} → SOL via Jupiter`,
+    selling:'selling via Jupiter…', sellAllDone:(s)=>`sold, received ~${s} SOL`,
+    rmPoolConfirm:(n)=>`Remove pair ${n} from registry?`,
+    reloadPageQ:'Pool switched. Reload the page to apply?',
+    switching:'Switching pair — updating balances, please wait ~10s…',
+  },
+  ru: {
+    title:'Fleet Control', secTrade:'Торговля', secMoney:'Деньги', secMarket:'Рынок', secInfra:'Инфраструктура', secData:'Данные',
+    sSwaps:'свопов', sVol:'объём', sMin:'мин', sFees:'~комиссии',
+    control:'Управление', buyHint:'доля покупок · 60%+ = давление вверх',
+    swapMin:'своп min', swapMax:'своп max', delayMin:'пауза min с', delayMax:'пауза max с',
+    hotHint:'применяется на лету, без перезапуска', start:'▶ Старт', stop:'■ Стоп',
+    pair:'Торговая пара', poolPh:'адрес Raydium CPMM пула…', addPool:'+ Добавить',
+    poolHint:'смена пула = авторестарт флота · только Raydium CPMM',
+    dist:'Распределение (общая сумма → поровну)', distSolL:'SOL всего', distTotal:'всего', distTotal2:'всего',
+    distBtn:'Распределить', distHint:'доливает до равных долей · нехватку quote докупает через Jupiter · token только из наличия funder',
+    bots:'Кошельки ботов', addBot:'+ Добавить', addr:'адрес',
+    session:'Сессия', preflight:'Проверка готовности', fund:'Дофандить', sweep:'Завершить сессию и собрать',
+    ledger:'Расходы и доходы', lSolIn:'SOL приход', lSolOut:'SOL расход', lFees:'~комиссии сети',
+    trades:'Сделки', actions:'Действия панели',
+    perBot:'на каждого бота', funderHas:'у funder', enterSums:'введи суммы',
+    confirmDist:(n,s,q,t,qs,ts)=>`Распределить поровну на ${n} ботов:\n${s} SOL + ${q} ${qs} + ${t} ${ts}?`,
+    distributing:'распределяю…', distDone:(d,s,q,t)=>`готово: ${d} ботов × (${s} SOL / ${q} / ${t})`,
+    confirmRm:(n)=>`Удалить бота ${n}? Балансы уйдут на funder (токены → SOL последним).`,
+    botAdded:(i)=>`добавлен bot ${i} — нажми «Дофандить»`,
+    confirmPool:'Переключить пул? Флот будет перезапущен.',
+    poolChanged:'пул сменён, флот перезапущен', poolChanged2:'пул сменён',
+    detecting:'определяю токены пула…', poolAdded:(n)=>`добавлен: ${n}`,
+    checking:'проверяю…', funding:'фандинг… (конверсия + раздача, до минуты)',
+    funded:(n)=>`долито ботов: ${n}`,
+    confirmSweep:'Завершить сессию: остановить флот и собрать ВСЕ балансы на funder (без распродажи)?',
+    sweeping:'собираю…', swept:(n)=>`собрано с ${n} кошельков`,
+    starting:'запускаю…', startAnyway:'Проверка не пройдена. Всё равно запустить?',
+    pid:(p)=>`pid ${p}`,
+    pfNames:{}, ledgerTypes:{},
+    in:'приход', out:'расход',
+    funders:'Фандеры', add:'+ Добавить', activeH:'актив.', nameH:'метка',
+    nfNamePh:'метка (напр. main)', nfKeyPh:'приватный ключ base58 (пусто = сгенерировать)',
+    nfHint:'сгенерированный ключ показывается ОДИН раз — сохрани его',
+    test:'Проверить', save:'Сохранить', rpcKeyPh:'API-ключ Helius (uuid)…',
+    rpcCur:(m)=>`текущий ключ: ${m}`, rpcNone:'ключ не задан', rpcOk:(l)=>`✓ работает, ${l}ms — пока не сохранён`,
+    rpcSaved:(l)=>`✓ сохранён, ${l}ms — флот подхватит при следующем старте`,
+    srcFrom:(n,s)=>`источник: ${n} (${s})`,
+    rmFAsk:(n)=>`Адрес получателя средств с ${n}:`,
+    rmFConfirm:(n,d)=>`Удалить фандера ${n}? Все средства → ${d}\n(токены → закрытие ATA → SOL последним)`,
+    rmActive:'активного фандера удалить нельзя — переключи активного',
+    genKey:(k)=>`СОХРАНИ ПРИВАТНЫЙ КЛЮЧ (показан один раз):\n${k}`,
+    nfAdded:(n)=>`фандер ${n} добавлен`,
+    sessions:'Сессии', started:'старт', sSwaps2:'свопы', sVol2:'объём', sFees2:'~комиссии',
+    deploy:'В оборот', deployHint:'% от SOL funder → газ фиксом, далее 70% quote / 30% token через Jupiter, поровну',
+    deployConfirm:(p)=>`Пустить в оборот ${p}% SOL funder'а? Токены докупятся через Jupiter и разойдутся по ботам поровну.`,
+    deploying:'пускаю в оборот… (конверсии + раздача)',
+    deployDone:(d,s,q,tk)=>`готово: ${d} ботов × (${s} SOL / ${q} quote / ${tk} token)`,
+    watchdog:'watchdog (автоперезапуск)', rpcNamePh:'метка', keyAdded:(n)=>`ключ ${n} добавлен`,
+    rmKey:'удалить неактивный ключ?', noPoints:'собираю данные цены…', vol2:'объём',
+    exportKeyConfirm:'Показать приватный ключ (base58)? Владелец ключа контролирует кошелёк.',
+    sellAllConfirm:(n,q,qs,tk,ts)=>`Продать ВСЕ токены на ${n}?\n${q} ${qs} + ${tk} ${ts} → SOL через Jupiter`,
+    selling:'продаю через Jupiter…', sellAllDone:(s)=>`продано, получено ~${s} SOL`,
+    rmPoolConfirm:(n)=>`Удалить пару ${n} из реестра?`,
+    reloadPageQ:'Пул переключён. Перезагрузить страницу для применения?',
+    switching:'Переключаю пару — обновляю балансы, подожди ~10 сек…',
+  },
+};
+let LANG = localStorage.getItem('fleet_lang') || 'en';
+const t = (k, ...a) => { const v = I18N[LANG][k] ?? I18N.en[k] ?? k; return typeof v === 'function' ? v(...a) : v; };
+const tMap = (dictKey, s) => (I18N[LANG][dictKey] || {})[s] || s;
+
+const $ = (id) => document.getElementById(id);
+let applying = false, POOL = {}, BOTS_N = 0, FUNDER_BAL = null;
+
+function applyLang() {
+  document.documentElement.lang = LANG;
+  $('langSel').value = LANG;
+  document.querySelectorAll('[data-t]').forEach(el => el.textContent = t(el.dataset.t));
+  document.querySelectorAll('[data-t-ph]').forEach(el => el.placeholder = t(el.dataset.tPh));
+  refresh();
+}
+document.getElementById('langSel').addEventListener('change', (e) => {
+  LANG = e.target.value;
+  localStorage.setItem('fleet_lang', LANG);
+  api('/api/lang', 'POST', { lang: LANG });
+  applyLang();
+});
+
+async function api(path, method, body) {
+  const r = await fetch(path, method ? { method, body: body ? JSON.stringify(body) : undefined } : undefined);
+  return r.json();
+}
+const fmt = (n, d=3) => n === undefined ? '—' : Number(n).toFixed(d);
+
+async function refresh() {
+  const s = await api('/api/status');
+  $('dot').className = 'dot' + (s.running ? ' on' : '');
+  $('cluster').textContent = s.cluster + (s.running ? ' · pid ' + s.pid : ' · ' + (LANG==='ru'?'остановлен':'stopped'));
+  POOL = s.pool || {};
+  const st = s.stats || {};
+  const QU = s.quoteUsd;
+  $('swaps').textContent = st.swaps ?? 0;
+  $('vol').innerHTML = QU && st.volume != null
+    ? `$${(st.volume * QU).toFixed(1)} <small style="font-size:10px;color:var(--dim)">${st.volume.toFixed(1)}</small>`
+    : fmt(st.volume, 1);
+  $('ratio').textContent = (st.buys ?? 0) + '/' + (st.sells ?? 0);
+  $('uptime').textContent = st.uptimeMin ? st.uptimeMin.toFixed(0) : '—';
+  const feeQ = (st.volume ?? 0) * 0.0025, feeS = (st.swaps ?? 0) * 0.000015;
+  $('fees').textContent = st.swaps ? `${feeQ.toFixed(1)}q` : '—';
+  $('btnStart').disabled = s.running; $('btnStop').disabled = !s.running;
+  if (!applying && s.params) {
+    const p = s.params;
+    if (p.buyPct !== undefined) { $('buyPct').value = p.buyPct*100; $('buyPctV').textContent = Math.round(p.buyPct*100)+'%'; }
+    for (const k of ['minSwap','maxSwap','minDelay','maxDelay']) if (p[k] !== undefined) $(k).value = p[k];
+    $('watchdog').checked = !!p.watchdog;
+  }
+  $('chartSym').textContent = `${(POOL.reversed ? POOL.quoteSymbol : POOL.mintSymbol) || 'TOKEN'}/USD`;
+  $('fqH').textContent = POOL.quoteSymbol || 'quote';
+  $('ftH').textContent = POOL.mintSymbol || 'token';
+  $('qH').textContent = POOL.quoteSymbol || 'quote';
+  $('tH').textContent = POOL.mintSymbol || 'token';
+  $('distQS').textContent = POOL.quoteSymbol || 'quote';
+  $('distTS').textContent = POOL.mintSymbol || 'token';
+  document.querySelectorAll('.swapQ').forEach(el => el.textContent = POOL.quoteSymbol || 'quote');
+  const lg = await api('/api/log?n=10');
+  $('log').innerHTML = lg.lines.map(l => `<div class="${l.includes(' BUY ')?'b':'s'}">${l.replace(/https:\/\/\S+/,'')}</div>`).join('') || '—';
+  $('log').scrollTop = 1e9;
+  const ac = await api('/api/actions');
+  $('actions').innerHTML = ac.lines.map(l => `<div>${l}</div>`).join('') || '—';
+
+  const ld = await api('/api/ledger');
+  const tt = ld.totals;
+  $('lSolIn').textContent = '+' + tt.solIn.toFixed(4);
+  $('lSolOut').textContent = '−' + tt.solOut.toFixed(4);
+  $('lQIn').textContent = '+' + tt.quoteIn.toFixed(1);
+  $('lQOut').textContent = '−' + tt.quoteOut.toFixed(1);
+  $('lFees').textContent = tt.fees.toFixed(5);
+  $('lQInS').textContent = `${POOL.quoteSymbol || 'quote'} ${t('in')}`;
+  $('lQOutS').textContent = `${POOL.quoteSymbol || 'quote'} ${t('out')}`;
+  $('ledger').innerHTML = ld.entries.map(e => {
+    const parts = [];
+    if (e.sol) parts.push(`<span class="${e.sol>0?'ok':'bad'}">${e.sol>0?'+':''}${e.sol.toFixed(4)} SOL</span>`);
+    if (e.quote) parts.push(`<span class="${e.quote>0?'ok':'bad'}">${e.quote>0?'+':''}${e.quote.toFixed(2)} ${POOL.quoteSymbol||'Q'}</span>`);
+    if (e.token) parts.push(`<span class="${e.token>0?'ok':'bad'}">${e.token>0?'+':''}${e.token.toFixed(1)} ${POOL.mintSymbol||'T'}</span>`);
+    return `<div>${e.ts} · ${tMap('ledgerTypes', e.type)} ${e.note?'· '+e.note:''} ${parts.join(' ')}</div>`;
+  }).join('') || '—';
+}
+
+async function refreshBalances() {
+  const b = await api('/api/balances');
+  const list = b.funders || [];
+  $('funders').innerHTML = list.map(f => `<tr>
+    <td><input type="radio" name="af" ${f.active ? 'checked' : ''} onchange="activateFunder('${f.address}')"></td>
+    <td>${f.name || ''}</td>
+    <td class="mono">${f.short} <button class="rm" title="copy" onclick="copyTxt('${f.address}',this)">📋</button><button class="rm" title="export key" onclick="exportKey('${f.address}')">🔑</button><button class="rm" title="sell all → SOL" onclick="sellAllFunder('${f.address}','${f.name||f.short}',${f.quote},${f.token})" style="color:var(--grn)">→SOL</button></td>
+    <td>${fmt(f.sol,4)}</td><td>${fmt(f.quote,1)}</td><td>${fmt(f.token,0)}</td>
+    <td>${f.active ? '' : `<button class="rm" onclick="removeFunder('${f.address}','${f.name||f.short}')">✕</button>`}</td></tr>`).join('');
+  FUNDER_BAL = list.find(f => f.active) || list[0] || null;
+  if (FUNDER_BAL) $('distSrc').textContent = t('srcFrom', FUNDER_BAL.name || '', FUNDER_BAL.short);
+  $('bots').innerHTML = b.bots.map(x => `<tr>
+    <td class="mono">${x.short} <button class="rm" title="copy" onclick="copyTxt('${x.address}',this)">📋</button><button class="rm" title="export key" onclick="exportKey('${x.address}')">🔑</button></td>
+    <td>${fmt(x.sol,4)}</td><td>${fmt(x.quote,1)}</td><td>${fmt(x.token,0)}</td>
+    <td><button class="rm" onclick="removeBot(${x.index},'${x.short}')">✕</button></td></tr>`).join('');
+  BOTS_N = b.bots.length;
+  loadDeployPreview();
+}
+
+async function activateFunder(address) { await api('/api/funders/activate', 'POST', { publicKey: address }); refreshBalances(); }
+
+async function copyTxt(txt, el) {
+  try {
+    await navigator.clipboard.writeText(txt);
+    const o = el.textContent; el.textContent = '✓';
+    setTimeout(() => { el.textContent = o; }, 900);
+  } catch {}
+}
+
+async function exportKey(address) {
+  if (!confirm(t('exportKeyConfirm'))) return;
+  const r = await api('/api/exportkey', 'POST', { address });
+  if (r.ok) prompt('base58 private key:', r.secret);
+  else $('msg').textContent = r.error;
+}
+
+async function sellAllFunder(address, name, quoteBal, tokenBal) {
+  if (!confirm(t('sellAllConfirm', name, quoteBal.toFixed(1), POOL.quoteSymbol || 'Q', tokenBal.toFixed(0), POOL.mintSymbol || 'T'))) return;
+  $('msg').textContent = t('selling');
+  const r = await api('/api/funders/sellall', 'POST', { publicKey: address });
+  $('msg').textContent = r.ok ? t('sellAllDone', r.solTotal.toFixed(4)) : r.error;
+  refreshBalances();
+}
+
+async function removeFunder(address, name) {
+  const dest = prompt(t('rmFAsk', name));
+  if (!dest) return;
+  if (!confirm(t('rmFConfirm', name, dest))) return;
+  const r = await api('/api/funders/remove', 'POST', { publicKey: address, destination: dest.trim() });
+  $('msg').textContent = r.ok ? `${name}: ${r.moved?.join(', ') || '—'}` : r.error;
+  refreshBalances();
+}
+
+$('btnAddFunder').onclick = () => {
+  const el = $('funderAdd');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+$('btnNFAdd').onclick = async () => {
+  const body = { name: $('nfName').value.trim() };
+  if ($('nfKey').value.trim()) body.secretKey = $('nfKey').value.trim();
+  const r = await api('/api/funders/add', 'POST', body);
+  if (r.ok) {
+    $('nfResult').innerHTML = r.generatedSecret ? `<span class="bad">${t('genKey', r.generatedSecret).replace('\n', '<br>')}</span>` : '';
+    $('msg').textContent = t('nfAdded', r.name);
+    $('nfName').value = ''; $('nfKey').value = '';
+  } else $('msg').textContent = r.error;
+  refreshBalances();
+};
+
+function updDistInfo() {} // legacy, заменено на loadDeployPreview
+
+let deployDeb;
+$('deployPct').oninput = () => {
+  $('deployPctV').textContent = $('deployPct').value + '%';
+  clearTimeout(deployDeb);
+  deployDeb = setTimeout(loadDeployPreview, 300);
+};
+async function loadDeployPreview() {
+  const d = await api('/api/deploy/preview?pct=' + $('deployPct').value);
+  if (!d.ok) {
+    $('deployInfo').textContent = `${(d.budget ?? 0).toFixed(3)} SOL — gas for ${d.n} bots: ${(d.gasTotal ?? 0).toFixed(3)} — too small`;
+    return;
+  }
+  const imp = (v) => (v > 5 ? `<span class="bad">${v.toFixed(1)}%</span>` : `${v.toFixed(1)}%`);
+  $('deployInfo').innerHTML =
+    `${d.budget.toFixed(3)} SOL · gas ${d.gasPerBot}×${d.n} · → ${(d.quote?.out || 0).toFixed(1)} ${POOL.quoteSymbol || 'Q'} (impact ${imp(d.quote?.impact ?? 0)})` +
+    ` · → ${(d.token?.out || 0).toFixed(1)} ${POOL.mintSymbol || 'T'} (impact ${imp(d.token?.impact ?? 0)})` +
+    ` · ${t('perBot')}: ${d.gasPerBot} SOL / ${(d.perBot?.quote || 0).toFixed(2)} / ${(d.perBot?.token || 0).toFixed(1)}`;
+}
+$('btnDeploy').onclick = async () => {
+  const pct = parseFloat($('deployPct').value);
+  if (!confirm(t('deployConfirm', pct))) return;
+  $('msg').textContent = t('deploying');
+  const r = await api('/api/deploy', 'POST', { pct });
+  $('msg').textContent = r.ok
+    ? t('deployDone', r.done, r.perBot.sol.toFixed(3), r.perBot.quote.toFixed(1), r.perBot.token.toFixed(1))
+    : r.error;
+  refreshBalances(); loadDeployPreview();
+};
+
+async function refreshPools() {
+  const { pools, active } = await api('/api/pools');
+  $('poolsList').innerHTML = pools.map(p => `<tr>
+    <td><input type="radio" name="ap" ${p.poolId === active.poolId ? 'checked' : ''} onchange="selectPool('${p.poolId}')"></td>
+    <td>${p.name}${p.reversed ? ' <span class="dim">⇄</span>' : ''}</td>
+    <td class="mono copy" onclick="navigator.clipboard.writeText('${p.poolId}')">${p.poolId.slice(0, 6)}…${p.poolId.slice(-4)}</td>
+    <td style="white-space:nowrap">
+      <button class="rm" title="reverse" onclick="reversePool('${p.poolId}')">⇄</button>
+      <button class="rm" title="refresh" onclick="refreshPoolMeta('${p.poolId}')">↻</button>
+      ${p.poolId !== active.poolId ? `<button class="rm" title="remove" onclick="removePool('${p.poolId}','${p.name}')">✕</button>` : ''}
+    </td></tr>`).join('');
+}
+
+async function reversePool(poolId) {
+  const r = await api('/api/pools/reverse', 'POST', { poolId });
+  if (r.ok) { refreshPools(); drawChart(true); refresh(); }
+  else $('msg').textContent = r.error;
+}
+
+async function selectPool(poolId) {
+  if (!confirm(t('confirmPool'))) { refreshPools(); return; }
+  const r = await api('/api/pools/select', 'POST', { poolId });
+  if (!r.ok) { $('msg').textContent = r.error; return; }
+  // блокирующая анимация ~10 сек: балансы успевают обновиться, затем перезагрузка
+  $('overlayText').textContent = t('switching');
+  $('overlay').classList.add('show');
+  document.body.style.pointerEvents = 'none';
+  $('overlay').style.pointerEvents = 'all';
+  setTimeout(() => location.reload(), 10000);
+}
+
+async function refreshPoolMeta(poolId) {
+  const r = await api('/api/pools/refresh', 'POST', { poolId });
+  $('msg').textContent = r.ok ? `↻ ${r.pool.name}` : r.error;
+  refreshPools(); refresh();
+}
+
+async function removePool(poolId, name) {
+  if (!confirm(t('rmPoolConfirm', name))) return;
+  const r = await api('/api/pools/remove', 'POST', { poolId });
+  $('msg').textContent = r.ok ? `✓ ${name}` : r.error;
+  refreshPools();
+}
+
+async function removeBot(index, name) {
+  if (!confirm(t('confirmRm', name))) return;
+  const r = await api('/api/bots/remove', 'POST', { index });
+  $('msg').textContent = r.ok ? `bot ${index}: ${r.moved?.join(', ') || '—'}` : r.error;
+  refreshBalances();
+}
+
+$('btnAddBot').onclick = async () => {
+  const r = await api('/api/bots/add', 'POST', {});
+  $('msg').textContent = r.ok ? t('botAdded', r.index) : r.error;
+  refreshBalances();
+};
+
+$('btnAddPool').onclick = async () => {
+  const poolId = $('newPool').value.trim();
+  if (poolId.length < 32) return;
+  $('msg').textContent = t('detecting');
+  const r = await api('/api/pools/add', 'POST', { poolId });
+  $('msg').textContent = r.ok ? t('poolAdded', r.pool.name) : r.error;
+  $('newPool').value = '';
+  refreshPools();
+};
+
+$('btnSweep').onclick = async () => {
+  if (!confirm(t('confirmSweep'))) return;
+  $('msg').textContent = t('sweeping');
+  const r = await api('/api/sweep', 'POST', {});
+  $('msg').textContent = r.ok ? t('swept', r.results.length) : r.error;
+  refresh(); refreshBalances();
+};
+
+// ── RPC keys ──
+async function loadRpcKeys() {
+  const r = await api('/api/rpc');
+  $('rpcKeys').innerHTML = (r.keys || []).map(k => `<tr>
+    <td><input type="radio" name="rk" ${k.active ? 'checked' : ''} onchange="activateRpcKey('${k.name}')"></td>
+    <td>${k.name}</td><td class="mono">${k.masked}</td>
+    <td>${k.active ? '' : `<button class="rm" onclick="removeRpcKey('${k.name}')">✕</button>`}</td></tr>`).join('');
+  $('rpcStatus').textContent = '';
+}
+async function activateRpcKey(name) { await api('/api/rpc/activate', 'POST', { name }); loadRpcKeys(); }
+async function removeRpcKey(name) {
+  if (!confirm(t('rmKey'))) return;
+  const r = await api('/api/rpc/remove', 'POST', { name });
+  if (r.error) $('rpcStatus').textContent = '✗ ' + r.error;
+  loadRpcKeys();
+}
+$('btnRpcTest').onclick = async () => {
+  $('rpcStatus').textContent = '…';
+  const r = await api('/api/rpc/test', 'POST', { key: $('rpcKey').value });
+  $('rpcStatus').textContent = r.ok ? t('rpcOk', r.latency) : '✗ ' + r.error;
+};
+$('btnRpcSave').onclick = async () => {
+  $('rpcStatus').textContent = '…';
+  const r = await api('/api/rpc/add', 'POST', { name: $('rpcName').value, key: $('rpcKey').value });
+  $('rpcStatus').textContent = r.ok ? t('keyAdded', r.name) : '✗ ' + r.error;
+  if (r.ok) { $('rpcKey').value = ''; $('rpcName').value = ''; }
+  loadRpcKeys();
+};
+
+// ── график (lightweight-charts; свечи Jupiter datapi как у cypherdog, фолбэк — наша серия) ──
+const TF_MS = { '1m': 60000, '5m': 300000, '15m': 900000, '1h': 3600000 };
+let TF = '5m', chart = null, candleSeries = null, volSeries = null;
+function initChart() {
+  if (chart || !window.LightweightCharts) return;
+  chart = LightweightCharts.createChart($('chart'), {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: '#7d8b99', fontFamily: 'Menlo, monospace', fontSize: 11 },
+    grid: { vertLines: { color: '#16202b' }, horzLines: { color: '#16202b' } },
+    timeScale: { borderColor: '#16202b', timeVisible: true, secondsVisible: false },
+    rightPriceScale: { borderColor: '#16202b' },
+    crosshair: { vertLine: { color: '#58a6ff', labelBackgroundColor: '#16283d' }, horzLine: { color: '#58a6ff', labelBackgroundColor: '#16283d' } },
+  });
+  candleSeries = chart.addCandlestickSeries({
+    upColor: '#00ff88', downColor: '#ff4455',
+    wickUpColor: '#00aa55', wickDownColor: '#aa3344', borderVisible: false,
+    priceFormat: { type: 'custom', formatter: (p) => '$' + p.toFixed(8), minMove: 0.00000001 },
+  });
+  volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+  chart.priceScale('').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+}
+document.querySelectorAll('.tf-btns button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tf-btns button').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel');
+  TF = b.dataset.tf;
+  drawChart(true);
+});
+async function drawChart(refit) {
+  initChart();
+  if (!chart) { setTimeout(() => drawChart(refit), 600); return; }
+  const d = await api('/api/candles?tf=' + TF);
+  const tfMs = TF_MS[TF];
+
+  // свечи всегда в USD (reverse на сервере меняет токен: quote-минт вместо базового)
+  const candles = (d.candles || []).map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+  const vols = (d.candles || []).map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(0,170,85,0.45)' : 'rgba(255,68,85,0.45)' }));
+  let candlesFinal = candles;
+  if (!candlesFinal.length) {
+    // фолбэк: локальная серия из резервов пула (quote-per-token × quoteUsd → USD)
+    const pts = d.local || [];
+    const QU = d.quoteUsd || 0;
+    const useUsd = pts.some(p => p.usd != null);
+    const val = (p) => useUsd && p.usd != null ? p.usd : (QU ? p.p * QU : p.p);
+    const buckets = new Map();
+    for (const p of pts) {
+      const b = Math.floor(p.ts / tfMs);
+      const v = val(p);
+      const cur = buckets.get(b);
+      if (!cur) buckets.set(b, { o: v, h: v, l: v, c: v });
+      else { cur.h = Math.max(cur.h, v); cur.l = Math.min(cur.l, v); cur.c = v; }
+    }
+    candlesFinal = [...buckets.keys()].sort((a, b) => a - b).map(k => {
+      const { o, h, l, c } = buckets.get(k);
+      return { time: k * tfMs / 1000, open: o, high: h, low: l, close: c };
+    });
+  }
+
+  if (candlesFinal.length) {
+    const last = candlesFinal[candlesFinal.length - 1];
+    const ref = candlesFinal[Math.max(0, candlesFinal.length - 60)];
+    const chg = (last.close - ref.close) / ref.close * 100;
+    $('priceNow').textContent = '$' + last.close.toFixed(8);
+    $('priceNow').style.color = chg >= 0 ? 'var(--grn)' : 'var(--red)';
+    $('priceChg').textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+    $('priceChg').style.color = chg >= 0 ? 'var(--grn)' : 'var(--red)';
+  }
+  candleSeries.setData(candlesFinal);
+  volSeries.setData(vols);
+  candleSeries.applyOptions({ priceFormat: { type: 'custom', formatter: (p) => '$' + p.toFixed(8), minMove: 0.00000001 } });
+
+  // маркеры наших свопов поверх — по одной на свечу
+  const t0 = candlesFinal.length ? candlesFinal[0].time * 1000 : 0;
+  const t1 = candlesFinal.length ? candlesFinal[candlesFinal.length - 1].time * 1000 + tfMs : Infinity;
+  const swaps = (d.swaps || []).filter(s => s.ts >= t0 && s.ts < t1);
+  const seen = new Map();
+  for (const s of swaps) {
+    const b = Math.floor(s.ts / tfMs);
+    if (!seen.has(b)) seen.set(b, s);
+  }
+  candleSeries.setMarkers([...seen.entries()].sort((a, b) => a[0] - b[0]).map(([k, s]) => ({
+    time: k * tfMs / 1000,
+    position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
+    color: s.side === 'BUY' ? '#00ff88' : '#ff4455',
+    shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+  })));
+  if (refit) chart.timeScale().fitContent();
+}
+
+// ── сессии ──
+async function loadSessions() {
+  const d = await api('/api/sessions');
+  $('sessions').innerHTML = (d.sessions || []).map(s => {
+    const dt = new Date(s.startedAt);
+    const dp = s.priceDeltaPct;
+    return `<tr><td>${dt.toISOString().slice(5, 16).replace('T', ' ')}</td>
+      <td>${s.swaps}</td><td>${s.volumeUsd != null ? '$' + s.volumeUsd.toFixed(1) : fmt(s.volume, 1)}</td>
+      <td class="${dp > 0 ? 'ok' : dp < 0 ? 'bad' : ''}">${dp === null ? '—' : (dp > 0 ? '+' : '') + dp.toFixed(1) + '%'}</td>
+      <td>${(s.estFeesQuote || 0).toFixed(2)}q</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="dim">—</td></tr>';
+}
+
+// ── параметры (горячие) ──
+let deb;
+function push(patch) {
+  applying = true;
+  clearTimeout(deb);
+  deb = setTimeout(async () => { await api('/api/params','POST',patch); setTimeout(()=>applying=false, 1200); }, 250);
+}
+$('buyPct').oninput = () => { $('buyPctV').textContent = $('buyPct').value+'%'; push({ buyPct: $('buyPct').value/100 }); };
+for (const id of ['minSwap','maxSwap','minDelay','maxDelay']) $(id).onchange = () => push({ [id]: parseFloat($(id).value) });
+$('watchdog').onchange = () => push({ watchdog: $('watchdog').checked });
+
+$('btnStart').onclick = async () => {
+  $('msg').textContent = t('starting');
+  let r = await api('/api/start', 'POST', {});
+  if (!r.ok && r.checks) {
+    $('pf').innerHTML = r.checks.map(c => `<div class="pf ${c.ok?'ok':'bad'}">${c.ok?'✓':'✗'} ${tMap('pfNames', c.name)}${c.detail?' — '+c.detail:''}</div>`).join('');
+    if (confirm(t('startAnyway'))) r = await api('/api/start', 'POST', { force: true });
+  }
+  $('msg').textContent = r.ok ? t('pid', r.pid) : (r.error || '');
+  refresh();
+};
+$('btnStop').onclick = async () => { await api('/api/stop', 'POST', {}); refresh(); };
+
+applyLang();
+refreshPools(); refreshBalances(); loadRpcKeys(); loadSessions(); drawChart(true);
+setInterval(refresh, 3000);
+setInterval(refreshBalances, 15000);
+setInterval(() => drawChart(false), 10000);
+setInterval(loadSessions, 15000);
+</script>
+</body>
+</html>
