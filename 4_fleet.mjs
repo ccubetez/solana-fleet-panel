@@ -75,6 +75,16 @@ async function makeBot(w) {
 
   while (true) {
     const P = readParams(); // ← горячие параметры каждый цикл
+    // автостоп по газу: SOL ниже порога — бот выходит; когда вышли все — флот завершается
+    const gasFloor = P.gasFloor ?? 0.003;
+    try {
+      const sol = (await conn.getBalance(kp.publicKey)) / 1e9;
+      if (sol < gasFloor) {
+        console.log(`[bot ${w.index}] газ ${sol.toFixed(4)} SOL < ${gasFloor} — выхожу`);
+        markDead();
+        return;
+      }
+    } catch {}
     try {
       const fresh = await raydium.cpmm.getPoolInfoFromRpc(pool.poolId);
       const rpcData = fresh.rpcData;
@@ -152,4 +162,20 @@ setInterval(() => {
 
 console.log(`[${CLUSTER}] Запускаю ${wallets.length} ботов на пуле ${pool.poolId} (quote: ${QUOTE_SYMBOL})`);
 publishStats();
+
+// автостоп: когда все боты вышли по газу — пишем причину в stats и завершаемся
+let deadBots = 0;
+function markDead() {
+  deadBots++;
+  if (deadBots >= wallets.length) {
+    try {
+      const st = JSON.parse(fs.readFileSync(STATSFILE, 'utf8'));
+      st.stopReason = 'low_gas';
+      fs.writeFileSync(STATSFILE, JSON.stringify(st));
+    } catch {}
+    console.log('=== все боты без газа — авто-стоп флота (low_gas) ===');
+    process.exit(0);
+  }
+}
+
 await Promise.all(wallets.map(makeBot));

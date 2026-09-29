@@ -63,6 +63,13 @@ Each bot needs the **new pair's tokens**. Re-run **Deploy budget** after switchi
 ### Watchdog
 If the fleet process crashes, the panel auto-restarts it (toggleable). Session reports are written on stop/crash.
 
+
+### Safety guards built in
+- **CSRF protection** — POST endpoints accept only localhost origins, so a random web page cannot trigger fund movements.
+- **Operation mutex** — deploy/sweep/fund cannot overlap; a second call returns `busy`.
+- **Gas auto-stop** — bots below `gasFloor` SOL (default 0.003, set in params.json) exit; when all are out, the fleet stops and the session is closed with reason `low_gas`.
+- **Sessions show ~fees in USD** (via Jupiter SOL/USD price).
+
 ## Devnet playground
 
 No real money needed:

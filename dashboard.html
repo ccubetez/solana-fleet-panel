@@ -722,7 +722,7 @@ async function loadSessions() {
     return `<tr><td>${dt.toISOString().slice(5, 16).replace('T', ' ')}</td>
       <td>${s.swaps}</td><td>${s.volumeUsd != null ? '$' + s.volumeUsd.toFixed(1) : fmt(s.volume, 1)}</td>
       <td class="${dp > 0 ? 'ok' : dp < 0 ? 'bad' : ''}">${dp === null ? '—' : (dp > 0 ? '+' : '') + dp.toFixed(1) + '%'}</td>
-      <td>${(s.estFeesQuote || 0).toFixed(2)}q</td></tr>`;
+      <td>${s.estFeesUsd != null ? '$' + s.estFeesUsd.toFixed(2) : (s.estFeesQuote || 0).toFixed(2) + 'q'}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="dim">—</td></tr>';
 }
 

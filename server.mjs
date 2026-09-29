@@ -101,6 +101,7 @@ const LA_DICT = {
     fleetStarted: (p, n) => `Fleet started (pid ${p}, bots ${n})`,
     watchdogRestart: () => `Watchdog: fleet crashed, restarting in 3s`,
     fleetExited: () => `Fleet exited (crash)`,
+    lowGasStop: () => `Auto-stop: bots are out of gas`,
     exportKey: (s) => `Key exported: ${s}`,
     sellAll: (n, r) => `Sell all ${n}: ${r}`,
     deploy: (p, b, d) => `Deploy ${p}%: ${b} SOL → ${d} bots`,
@@ -128,6 +129,7 @@ const LA_DICT = {
     fleetStarted: (p, n) => `Флот запущен (pid ${p}, ботов: ${n})`,
     watchdogRestart: () => `Watchdog: флот упал, перезапуск через 3 сек`,
     fleetExited: () => `Флот завершился (падение/выход)`,
+    lowGasStop: () => `Автостоп: у ботов кончился газ`,
     exportKey: (s) => `Экспорт ключа: ${s}`,
     sellAll: (n, r) => `Продажа ${n}: ${r}`,
     deploy: (p, b, d) => `Оборот ${p}%: ${b} SOL → ${d} ботов`,
@@ -163,7 +165,6 @@ async function balances() {
   const pool = activePool();
   const wallets = loadWallets();
   if (!pool) {
-    // пул ещё не настроен: отдаём только SOL-балансы
     async function solOnly(pkStr) {
       const sol = await conn.getBalance(new PublicKey(pkStr)).catch(() => 0);
       return { address: pkStr, short: short(pkStr), sol: sol / LAMPORTS_PER_SOL, quote: 0, token: 0 };
@@ -535,18 +536,33 @@ setTimeout(samplePrice, 1500);
 
 // ── сессии ──
 let session = null; // {id, startedAt, priceStart}
+let solUsdCache = { t: 0, v: null };
+async function solUsd() {
+  if (Date.now() - solUsdCache.t < 60000 && solUsdCache.v) return solUsdCache.v;
+  try {
+    const r = await (await fetch('https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112')).json();
+    const v = r?.['So11111111111111111111111111111111111111112']?.usdPrice;
+    if (v) { solUsdCache = { t: Date.now(), v: parseFloat(v) }; return solUsdCache.v; }
+  } catch {}
+  return solUsdCache.v;
+}
 async function endSession(reason) {
   if (!session) return null;
   const st = readJson(`stats.${CLUSTER}.json`, {});
   const priceEnd = lastPrice();
+  const solPrice = await solUsd();
+  const estFeesSol = (st.swaps || 0) * 0.000015;
+  const estFeesQuote = (st.volume || 0) * 0.0025;
   const s = {
     ...session, endedAt: Date.now(), reason,
     swaps: st.swaps || 0, buys: st.buys || 0, sells: st.sells || 0,
     volume: st.volume || 0, errors: st.errors || 0,
-    estFeesQuote: (st.volume || 0) * 0.0025, estFeesSol: (st.swaps || 0) * 0.000015,
+    estFeesQuote, estFeesSol,
     priceStart: session.priceStart, priceEnd,
     priceDeltaPct: session.priceStart && priceEnd ? ((priceEnd - session.priceStart) / session.priceStart) * 100 : null,
     volumeUsd: usdRates.quote ? (st.volume || 0) * usdRates.quote : null,
+    solUsd: solPrice,
+    estFeesUsd: (solPrice ? estFeesSol * solPrice : 0) + (usdRates.quote ? estFeesQuote * usdRates.quote : 0) || null,
   };
   const arr = readJson('sessions.json', []);
   arr.push(s);
@@ -558,6 +574,14 @@ async function endSession(reason) {
 
 // ── watchdog флота ──
 let stoppingIntentional = false;
+
+// ── мьютекс длинных операций (deploy/sweep/fund/…) ──
+let opBusy = null;
+async function withOp(name, fn) {
+  if (opBusy) throw new Error(`busy: operation «${opBusy}» in progress — wait for it to finish`);
+  opBusy = name;
+  try { return await fn(); } finally { opBusy = null; }
+}
 
 // ── продажа всех токенов кошелька в SOL (Jupiter) ──
 async function jupiterSwapToSol(kp, inputMint, amountRaw, slippageBps = 250) {
@@ -679,6 +703,13 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(obj));
   };
   const body = async () => { let b = ''; for await (const c of req) b += c; try { return JSON.parse(b || '{}'); } catch { return {}; } };
+
+  // CSRF-защита: POST только с localhost-оригинов (запросы без Origin — curl/скрипты — пропускаем)
+  if (req.method === 'POST' && req.headers.origin) {
+    let bad = true;
+    try { bad = !['localhost', '127.0.0.1', '::1'].includes(new URL(req.headers.origin).hostname); } catch {}
+    if (bad) return json({ ok: false, error: 'forbidden origin' }, 403);
+  }
 
   try {
     if (req.method === 'GET' && url.pathname === '/') {
@@ -888,7 +919,7 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true, reversed: pools[i].reversed, pool: pools[i] });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/fund') return json(await fundBots());
+    if (req.method === 'POST' && url.pathname === '/api/fund') return json(await withOp('fund', fundBots));
 
     // ── мульти-фандеры ──
     if (req.method === 'POST' && url.pathname === '/api/funders/add') {
@@ -934,7 +965,7 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/funders/remove') {
+    if (req.method === 'POST' && url.pathname === '/api/funders/remove') return json(await withOp('funder-remove', async () => {
       const { publicKey, destination } = await body();
       const w = loadWallets();
       const i = w.findIndex((x) => x.role === 'funder' && x.publicKey === publicKey);
@@ -950,7 +981,7 @@ const server = http.createServer(async (req, res) => {
       if (!r.empty) ledger({ type: 'доход: вывод фандера', sol: r.amounts.sol || null, quote: r.amounts.quote || null, token: r.amounts.token || null, fee: TX_FEE, note: `${name} → ${short(destination)}` });
       balCache.t = 0;
       return json({ ok: true, ...r });
-    }
+    }));
 
     // ── Helius RPC: реестр ключей ──
     if (req.method === 'GET' && url.pathname === '/api/rpc') {
@@ -1010,7 +1041,7 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/funders/sellall') {
+    if (req.method === 'POST' && url.pathname === '/api/funders/sellall') return json(await withOp('sellall', async () => {
       const { publicKey } = await body();
       const w = loadWallets();
       const entry = getFunders(w).find((x) => x.publicKey === publicKey);
@@ -1060,7 +1091,7 @@ const server = http.createServer(async (req, res) => {
       logAction(LA('sellAll', entry.name, results.join(' + ') || '—'));
       balCache.t = 0;
       return json({ ok: true, results, skipped, solTotal });
-    }
+    }));
 
     if (req.method === 'GET' && url.pathname === '/api/deploy/preview') {
       const pct = parseFloat(url.searchParams.get('pct')) || 50;
@@ -1077,10 +1108,10 @@ const server = http.createServer(async (req, res) => {
       return json(out);
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/deploy') {
+    if (req.method === 'POST' && url.pathname === '/api/deploy') return json(await withOp('deploy', async () => {
       const b = await body();
       return json(await deployBudget(parseFloat(b.pct) || 0));
-    }
+    }));
 
     if (req.method === 'POST' && url.pathname === '/api/exportkey') {
       const { address } = await body();
@@ -1092,14 +1123,14 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true, secret: bs58.encode(Buffer.from(entry.secretKey, 'base64')) });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/distribute') {
+    if (req.method === 'POST' && url.pathname === '/api/distribute') return json(await withOp('distribute', async () => {
       const b = await body();
       return json(await distributeTotals({
         totalSol: parseFloat(b.totalSol) || 0,
         totalQuote: parseFloat(b.totalQuote) || 0,
         totalToken: parseFloat(b.totalToken) || 0,
       }));
-    }
+    }));
 
     if (req.method === 'POST' && url.pathname === '/api/bots/add') {
       const wallets = loadWallets();
@@ -1112,7 +1143,7 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true, index: maxIdx + 1, publicKey: kp.publicKey.toBase58() });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/bots/remove') {
+    if (req.method === 'POST' && url.pathname === '/api/bots/remove') return json(await withOp('bot-remove', async () => {
       const { index } = await body();
       const wallets = loadWallets();
       const i = wallets.findIndex((x) => x.role === 'bot' && x.index === index);
@@ -1128,9 +1159,9 @@ const server = http.createServer(async (req, res) => {
       if (!r.empty) ledger({ type: 'доход: сбор (удаление)', sol: r.amounts.sol || null, quote: r.amounts.quote || null, token: r.amounts.token || null, fee: TX_FEE, note: `bot ${index}` });
       balCache.t = 0;
       return json({ ok: true, ...r });
-    }
+    }));
 
-    if (req.method === 'POST' && url.pathname === '/api/sweep') {
+    if (req.method === 'POST' && url.pathname === '/api/sweep') return json(await withOp('sweep', async () => {
       if (child && !child.killed) {
         stoppingIntentional = true;
         await endSession('sweep');
@@ -1156,7 +1187,7 @@ const server = http.createServer(async (req, res) => {
       logAction(LA('sweepDone', results.length));
       balCache.t = 0;
       return json({ ok: true, results });
-    }
+    }));
 
     if (req.method === 'POST' && url.pathname === '/api/start') {
       if (child && !child.killed) return json({ ok: false, error: 'уже запущен' }, 409);
@@ -1199,7 +1230,11 @@ async function startFleet() {
     const wasIntentional = stoppingIntentional;
     child = null;
     if (!wasIntentional) {
-      if (readJson('params.json', {}).watchdog) {
+      const stopReason = readJson(`stats.${CLUSTER}.json`, {}).stopReason;
+      if (stopReason === 'low_gas') {
+        logAction(LA('lowGasStop'));
+        endSession('low_gas');
+      } else if (readJson('params.json', {}).watchdog) {
         logAction(LA('watchdogRestart'));
         setTimeout(() => startFleet(), 3000);
       } else {
