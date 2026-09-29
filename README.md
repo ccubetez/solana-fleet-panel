@@ -35,14 +35,20 @@ First-run checklist in the panel:
 5. **Deploy budget** — slide the % and hit *Distribute*: gas + tokens land on every bot
 6. **Start** — the fleet begins swapping; **End session & collect** sweeps everything back
 
-## macOS app (no Docker, no Node needed)
+## Desktop apps (no Docker, no Node needed)
 
-Download `Solana.Fleet.Panel_1.0.0_aarch64.dmg` from [Releases](https://github.com/ccubetez/solana-fleet-panel/releases), drag to Applications.
+Download from [Releases](https://github.com/ccubetez/solana-fleet-panel/releases):
+
+| Platform | File |
+|---|---|
+| macOS (Apple Silicon) | `Solana.Fleet.Panel_1.0.0_aarch64.dmg` |
+| Windows 10/11 (x64) | `Solana.Fleet.Panel_1.0.0_x64-setup.exe` |
 
 - The app bundles its own Node.js runtime and the full panel — double-click and it works.
-- All data (wallets, pools, logs) lives in `~/Library/Application Support/com.solanafleet.panel/`.
-- **First launch**: macOS Gatekeeper will warn about an unidentified developer (the app is not notarized). Right-click the app → **Open** → **Open**. Or run once: `xattr -dr com.apple.quarantine "/Applications/Solana Fleet Panel.app"`.
-- Apple Silicon only (aarch64). Intel build can be produced the same way (`tauri build --target x86_64-apple-darwin`).
+- Data (wallets, pools, logs): macOS → `~/Library/Application Support/com.solanafleet.panel/`, Windows → `%APPDATA%\com.solanafleet.panel`.
+- **macOS first launch**: Gatekeeper warns (not notarized) — right-click → **Open**, or `xattr -dr com.apple.quarantine "/Applications/Solana Fleet Panel.app"`.
+- **Windows first launch**: SmartScreen warns (unsigned) — **More info → Run anyway**. WebView2 is built into Windows 11; the installer bootstraps it on Windows 10.
+- Windows builds are produced by GitHub Actions (`.github/workflows/build-app.yml`) — trigger manually or push a `v*` tag.
 
 ## Without Docker
 
