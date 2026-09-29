@@ -1,6 +1,11 @@
 node_modules/
 .env
 
+# app build artifacts
+app/resources/
+app/node_modules/
+app/src-tauri/target/
+
 # private keys & runtime state — NEVER commit
 wallets.json
 wallets.backup.*.json
