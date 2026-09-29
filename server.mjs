@@ -62,6 +62,7 @@ function applyRpcKey(key) {
   balCache.t = 0;
 }
 
+const SELF_DIR = new URL('.', import.meta.url).pathname; // кодовые ассеты — рядом с server.mjs, данные — в cwd
 const PORT = 3777;
 const CLUSTER = process.env.CLUSTER || 'mainnet';
 let child = null;
@@ -714,7 +715,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(fs.readFileSync('dashboard.html', 'utf8'));
+      return res.end(fs.readFileSync(SELF_DIR + 'dashboard.html', 'utf8'));
     }
     if (req.method === 'GET' && url.pathname === '/api/status') {
       return json({
@@ -1239,7 +1240,7 @@ const server = http.createServer(async (req, res) => {
 async function startFleet() {
   const nBots = getBots(loadWallets()).length;
   stoppingIntentional = false;
-  child = spawn('node', ['4_fleet.mjs'], {
+  child = spawn('node', [SELF_DIR + '4_fleet.mjs'], {
     env: { ...process.env, CLUSTER, BOTS: String(nBots) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
