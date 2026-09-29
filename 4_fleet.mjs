@@ -40,7 +40,8 @@ const QUOTE = pool.quoteMint || 'So11111111111111111111111111111111111111112';
 const QUOTE_SYMBOL = pool.quoteSymbol || 'SOL';
 const N_BOTS = DEFAULTS.bots; // число ботов меняется только рестартом
 const wallets = loadWallets().filter((x) => x.role === 'bot').slice(0, N_BOTS);
-const stats = { swaps: 0, buys: 0, sells: 0, volume: 0, errors: 0, startedAt: Date.now(), cluster: CLUSTER, quote: QUOTE_SYMBOL };
+const stats = { swaps: 0, buys: 0, sells: 0, volume: 0, errors: 0, startedAt: Date.now(), cluster: CLUSTER, quote: QUOTE_SYMBOL, perBot: {} };
+const botStat = (i) => (stats.perBot[i] = stats.perBot[i] || { swaps: 0, buys: 0, sells: 0, volume: 0, errors: 0 });
 
 function publishStats() {
   try {
@@ -141,12 +142,15 @@ async function makeBot(w) {
       stats.swaps++;
       stats[buyToken ? 'buys' : 'sells']++;
       stats.volume += vol;
+      const pb = botStat(w.index);
+      pb.swaps++; pb[buyToken ? 'buys' : 'sells']++; pb.volume += vol;
       const line = `[${new Date().toISOString().slice(0, 19)}] [bot ${w.index}] ${buyToken ? 'BUY ' : 'SELL'} in=${inputAmount.toString()} out=${swapResult.outputAmount.toString()} vol=${vol.toFixed(4)} ${QUOTE_SYMBOL} ${solscan(txId)}`;
       console.log(line);
       fs.appendFileSync(LOGFILE, line + '\n');
       publishStats();
     } catch (e) {
       stats.errors++;
+      botStat(w.index).errors++;
       publishStats();
       console.log(`[bot ${w.index}] ошибка: ${String(e?.message ?? JSON.stringify(e)).slice(0, 150)}`);
       await sleep(5000);

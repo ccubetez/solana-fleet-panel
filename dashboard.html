@@ -95,7 +95,13 @@
     <div><label><span data-t="swapMax">swap max</span>, <span class="swapQ dim"></span></label><input type="number" id="maxSwap" step="0.5" min="0.5"></div>
     <div><label data-t="delayMin">delay min s</label><input type="number" id="minDelay" step="5" min="5"></div>
     <div><label data-t="delayMax">delay max s</label><input type="number" id="maxDelay" step="5" min="10"></div>
-  </div><div class="dim" data-t="hotHint">applied live, no restart needed</div></div>
+  </div><div class="dim" data-t="hotHint">applied live, no restart needed</div>
+  <div class="row" style="margin-top:8px;gap:6px">
+    <span class="dim" data-t="presets">presets:</span>
+    <button class="rm" style="font-size:11px;padding:2px 8px" onclick="applyPreset('calm')" data-t="pCalm">calm</button>
+    <button class="rm" style="font-size:11px;padding:2px 8px" onclick="applyPreset('normal')" data-t="pNormal">normal</button>
+    <button class="rm" style="font-size:11px;padding:2px 8px" onclick="applyPreset('aggr')" data-t="pAggr">aggressive</button>
+  </div></div>
   <div class="row" style="margin-bottom:12px">
     <button id="btnStart" class="primary" data-t="start">▶ Start</button>
     <button id="btnStop" class="danger" data-t="stop">■ Stop</button>
@@ -149,12 +155,12 @@
 
 <div class="card">
   <h2><span data-t="bots">Bot wallets</span> <span class="right"><button id="btnAddBot" data-t="add">+ Add</button></span></h2>
-  <table><thead><tr><th data-t="addr">address</th><th>SOL</th><th id="qH">quote</th><th id="tH">token</th><th></th></tr></thead>
+  <table><thead><tr><th data-t="addr">address</th><th>SOL</th><th id="qH">quote</th><th id="tH">token</th><th data-t="sSwaps2">swaps</th><th></th></tr></thead>
   <tbody id="bots"></tbody></table>
 </div>
 
 <div class="card">
-  <h2 data-t="ledger">Expenses & income</h2>
+  <h2><span data-t="ledger">Expenses & income</span> <span class="right"><a href="/api/ledger.csv" download style="font-size:11px;color:var(--dim)">⬇ CSV</a></span></h2>
   <div class="row" style="gap:8px;margin-bottom:8px">
     <div class="stat"><b id="lSolIn" class="ok">—</b><span data-t="lSolIn">SOL in</span></div>
     <div class="stat"><b id="lSolOut" class="bad">—</b><span data-t="lSolOut">SOL out</span></div>
@@ -184,7 +190,7 @@
 </div>
 
 <div class="card">
-  <h2 data-t="sessions">Sessions</h2>
+  <h2><span data-t="sessions">Sessions</span> <span class="right"><a href="/api/sessions.csv" download style="font-size:11px;color:var(--dim)">⬇ CSV</a></span></h2>
   <table><thead><tr><th data-t="started">started</th><th data-t="sSwaps2">swaps</th><th data-t="sVol2">volume</th><th>Δ price</th><th data-t="sFees2">~fees</th></tr></thead>
   <tbody id="sessions"></tbody></table>
 </div>
@@ -269,6 +275,7 @@ const I18N = {
     genKey:(k)=>`SAVE THIS PRIVATE KEY (shown once):\n${k}`,
     nfAdded:(n)=>`funder ${n} added`,
     sessions:'Sessions', started:'started', sSwaps2:'swaps', sVol2:'vol', sFees2:'~fees',
+    presets:'presets:', pCalm:'calm', pNormal:'normal', pAggr:'aggressive',
     deploy:'Deploy budget', deployHint:'% of funder SOL → fixed gas, then 70% quote / 30% token via Jupiter, split evenly',
     deployConfirm:(p)=>`Deploy ${p}% of funder SOL? Tokens are bought via Jupiter and split evenly across all bots.`,
     deploying:'deploying… (conversions + distribution)',
@@ -325,6 +332,7 @@ const I18N = {
     genKey:(k)=>`СОХРАНИ ПРИВАТНЫЙ КЛЮЧ (показан один раз):\n${k}`,
     nfAdded:(n)=>`фандер ${n} добавлен`,
     sessions:'Сессии', started:'старт', sSwaps2:'свопы', sVol2:'объём', sFees2:'~комиссии',
+    presets:'пресеты:', pCalm:'спокойный', pNormal:'обычный', pAggr:'агрессивный',
     deploy:'В оборот', deployHint:'% от SOL funder → газ фиксом, далее 70% quote / 30% token через Jupiter, поровну',
     deployConfirm:(p)=>`Пустить в оборот ${p}% SOL funder'а? Токены докупятся через Jupiter и разойдутся по ботам поровну.`,
     deploying:'пускаю в оборот… (конверсии + раздача)',
@@ -344,7 +352,20 @@ const t = (k, ...a) => { const v = I18N[LANG][k] ?? I18N.en[k] ?? k; return type
 const tMap = (dictKey, s) => (I18N[LANG][dictKey] || {})[s] || s;
 
 const $ = (id) => document.getElementById(id);
-let applying = false, POOL = {}, BOTS_N = 0, FUNDER_BAL = null;
+let applying = false, POOL = {}, BOTS_N = 0, FUNDER_BAL = null, STATS = {};
+
+const PRESETS = {
+  calm:   { minSwap: 1, maxSwap: 3,  minDelay: 60, maxDelay: 180, buyPct: 0.53 },
+  normal: { minSwap: 1, maxSwap: 5,  minDelay: 15, maxDelay: 60,  buyPct: 0.53 },
+  aggr:   { minSwap: 5, maxSwap: 20, minDelay: 5,  maxDelay: 20,  buyPct: 0.6 },
+};
+async function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  await api('/api/params', 'POST', p);
+  $('msg').textContent = 'preset: ' + name;
+  refresh();
+}
 
 function applyLang() {
   document.documentElement.lang = LANG;
@@ -372,6 +393,7 @@ async function refresh() {
   $('cluster').textContent = s.cluster + (s.running ? ' · pid ' + s.pid : ' · ' + (LANG==='ru'?'остановлен':'stopped'));
   POOL = s.pool || {};
   const st = s.stats || {};
+  STATS = st;
   const QU = s.quoteUsd;
   $('swaps').textContent = st.swaps ?? 0;
   $('vol').innerHTML = QU && st.volume != null
@@ -434,6 +456,7 @@ async function refreshBalances() {
   $('bots').innerHTML = b.bots.map(x => `<tr>
     <td class="mono">${x.short} <button class="rm" title="copy" onclick="copyTxt('${x.address}',this)">📋</button><button class="rm" title="export key" onclick="exportKey('${x.address}')">🔑</button></td>
     <td>${fmt(x.sol,4)}</td><td>${fmt(x.quote,1)}</td><td>${fmt(x.token,0)}</td>
+    <td>${STATS.perBot?.[x.index]?.swaps ?? '—'}${STATS.perBot?.[x.index]?.errors ? ` <span class="bad" title="errors">+${STATS.perBot[x.index].errors}⚠</span>` : ''}</td>
     <td><button class="rm" onclick="removeBot(${x.index},'${x.short}')">✕</button></td></tr>`).join('');
   BOTS_N = b.bots.length;
   loadDeployPreview();

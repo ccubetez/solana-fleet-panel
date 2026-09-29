@@ -1093,6 +1093,26 @@ const server = http.createServer(async (req, res) => {
       return json({ ok: true, results, skipped, solTotal });
     }));
 
+    if (req.method === 'GET' && url.pathname === '/api/sessions.csv') {
+      const rows = readJson('sessions.json', []);
+      const cols = ['startedAt', 'endedAt', 'reason', 'swaps', 'buys', 'sells', 'volume', 'volumeUsd', 'priceStart', 'priceEnd', 'priceDeltaPct', 'estFeesQuote', 'estFeesSol', 'estFeesUsd'];
+      const esc = (v) => { if (v == null) return ''; const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const cell = (r, c) => esc(/At$/.test(c) && r[c] ? new Date(r[c]).toISOString() : r[c]);
+      const csv = [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r, c)).join(','))].join('\n');
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="sessions.csv"' });
+      return res.end(csv);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/ledger.csv') {
+      let lines = [];
+      try { lines = fs.readFileSync('ledger.jsonl', 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch {}
+      const cols = ['ts', 'type', 'sol', 'quote', 'token', 'fee', 'note'];
+      const esc = (v) => { if (v == null) return ''; const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      const csv = [cols.join(','), ...lines.map((r) => cols.map((c) => esc(c === 'ts' && r[c] ? new Date(r[c]).toISOString() : r[c])).join(','))].join('\n');
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="ledger.csv"' });
+      return res.end(csv);
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/deploy/preview') {
       const pct = parseFloat(url.searchParams.get('pct')) || 50;
       const c = await deployCalc(pct);
