@@ -118,6 +118,15 @@
   .spinner { width: 48px; height: 48px; border: 4px solid var(--border2); border-top-color: var(--acc); border-right-color: var(--grn);
     border-radius: 50%; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ── модалка (замена confirm/prompt — в WKWebView нативные диалоги не работают) ── */
+  #modal { display: none; position: fixed; inset: 0; z-index: 1200; background: rgba(8,9,13,.7);
+    align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #modal.show { display: flex; }
+  .modal-box { background: var(--card); border: 1px solid var(--acc); border-radius: 14px; padding: 18px 20px;
+    max-width: 440px; width: calc(100% - 40px); box-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 24px rgba(153,69,255,.15); }
+  #modalText { font-size: 13px; line-height: 1.55; margin-bottom: 14px; white-space: pre-wrap; word-break: break-word; }
+  #modalInput { width: 100%; margin-bottom: 14px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+  .modal-box .row { margin: 0; }
 </style>
 </head>
 <body>
@@ -130,6 +139,16 @@
   </div>
 </header>
 <div id="overlay"><div class="spinner"></div><div id="overlayText" style="font-size:14px">…</div></div>
+<div id="modal">
+  <div class="modal-box">
+    <div id="modalText"></div>
+    <input id="modalInput" style="display:none">
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button id="modalCancel" data-t="mCancel">Cancel</button>
+      <button id="modalOk" class="primary" data-t="mOk">OK</button>
+    </div>
+  </div>
+</div>
 <div class="wrap"><div class="col-l">
 
 <div class="sect" data-t="secTrade">Trading</div>
@@ -331,6 +350,7 @@ const I18N = {
     nfAdded:(n)=>`funder ${n} added`,
     sessions:'Sessions', started:'started', sSwaps2:'swaps', sVol2:'vol', sFees2:'~fees',
     presets:'presets:', pCalm:'calm', pNormal:'normal', pAggr:'aggressive',
+    mOk:'OK', mCancel:'Cancel',
     deploy:'Deploy budget', deployHint:'% of funder SOL → fixed gas, then 70% quote / 30% token via Jupiter, split evenly',
     deployConfirm:(p)=>`Deploy ${p}% of funder SOL? Tokens are bought via Jupiter and split evenly across all bots.`,
     deploying:'deploying… (conversions + distribution)',
@@ -388,6 +408,7 @@ const I18N = {
     nfAdded:(n)=>`фандер ${n} добавлен`,
     sessions:'Сессии', started:'старт', sSwaps2:'свопы', sVol2:'объём', sFees2:'~комиссии',
     presets:'пресеты:', pCalm:'спокойный', pNormal:'обычный', pAggr:'агрессивный',
+    mOk:'OK', mCancel:'Отмена',
     deploy:'В оборот', deployHint:'% от SOL funder → газ фиксом, далее 70% quote / 30% token через Jupiter, поровну',
     deployConfirm:(p)=>`Пустить в оборот ${p}% SOL funder'а? Токены докупятся через Jupiter и разойдутся по ботам поровну.`,
     deploying:'пускаю в оборот… (конверсии + раздача)',
@@ -421,6 +442,28 @@ async function applyPreset(name) {
   $('msg').textContent = 'preset: ' + name;
   refresh();
 }
+
+// ── свои диалоги: в Tauri/WKWebView нативные confirm()/prompt() молча не работают ──
+function uiDialog(text, hasInput, def = '') {
+  return new Promise((resolve) => {
+    const m = $('modal'), inp = $('modalInput');
+    $('modalText').textContent = text;
+    inp.style.display = hasInput ? 'block' : 'none';
+    inp.value = def;
+    m.classList.add('show');
+    const done = (v) => { m.classList.remove('show'); m.onclick = null; inp.onkeydown = null; resolve(v); };
+    $('modalOk').onclick = () => done(hasInput ? (inp.value.trim() || null) : true);
+    $('modalCancel').onclick = () => done(hasInput ? null : false);
+    m.onclick = (e) => { if (e.target === m) done(hasInput ? null : false); };
+    inp.onkeydown = (e) => {
+      if (e.key === 'Enter') $('modalOk').click();
+      if (e.key === 'Escape') $('modalCancel').click();
+    };
+    if (hasInput) setTimeout(() => inp.focus(), 60);
+  });
+}
+const uiConfirm = (text) => uiDialog(text, false);
+const uiPrompt = (text, def = '') => uiDialog(text, true, def);
 
 function applyLang() {
   document.documentElement.lang = LANG;
@@ -529,14 +572,14 @@ async function copyTxt(txt, el) {
 }
 
 async function exportKey(address) {
-  if (!confirm(t('exportKeyConfirm'))) return;
+  if (!(await uiConfirm(t('exportKeyConfirm')))) return;
   const r = await api('/api/exportkey', 'POST', { address });
-  if (r.ok) prompt('base58 private key:', r.secret);
+  if (r.ok) await uiPrompt('base58 private key:', r.secret);
   else $('msg').textContent = r.error;
 }
 
 async function sellAllFunder(address, name, quoteBal, tokenBal) {
-  if (!confirm(t('sellAllConfirm', name, quoteBal.toFixed(1), POOL.quoteSymbol || 'Q', tokenBal.toFixed(0), POOL.mintSymbol || 'T'))) return;
+  if (!(await uiConfirm(t('sellAllConfirm', name, quoteBal.toFixed(1), POOL.quoteSymbol || 'Q', tokenBal.toFixed(0), POOL.mintSymbol || 'T')))) return;
   $('msg').textContent = t('selling');
   const r = await api('/api/funders/sellall', 'POST', { publicKey: address });
   $('msg').textContent = r.ok ? t('sellAllDone', r.solTotal.toFixed(4)) : r.error;
@@ -544,9 +587,9 @@ async function sellAllFunder(address, name, quoteBal, tokenBal) {
 }
 
 async function removeFunder(address, name) {
-  const dest = prompt(t('rmFAsk', name));
+  const dest = await uiPrompt(t('rmFAsk', name));
   if (!dest) return;
-  if (!confirm(t('rmFConfirm', name, dest))) return;
+  if (!(await uiConfirm(t('rmFConfirm', name, dest)))) return;
   const r = await api('/api/funders/remove', 'POST', { publicKey: address, destination: dest.trim() });
   $('msg').textContent = r.ok ? `${name}: ${r.moved?.join(', ') || '—'}` : r.error;
   refreshBalances();
@@ -591,7 +634,7 @@ async function loadDeployPreview() {
 }
 $('btnDeploy').onclick = async () => {
   const pct = parseFloat($('deployPct').value);
-  if (!confirm(t('deployConfirm', pct))) return;
+  if (!(await uiConfirm(t('deployConfirm', pct)))) return;
   $('msg').textContent = t('deploying');
   const r = await api('/api/deploy', 'POST', { pct });
   $('msg').textContent = r.ok
@@ -620,7 +663,7 @@ async function reversePool(poolId) {
 }
 
 async function selectPool(poolId) {
-  if (!confirm(t('confirmPool'))) { refreshPools(); return; }
+  if (!(await uiConfirm(t('confirmPool')))) { refreshPools(); return; }
   const r = await api('/api/pools/select', 'POST', { poolId });
   if (!r.ok) { $('msg').textContent = r.error; return; }
   // блокирующая анимация ~10 сек: балансы успевают обновиться, затем перезагрузка
@@ -638,14 +681,14 @@ async function refreshPoolMeta(poolId) {
 }
 
 async function removePool(poolId, name) {
-  if (!confirm(t('rmPoolConfirm', name))) return;
+  if (!(await uiConfirm(t('rmPoolConfirm', name)))) return;
   const r = await api('/api/pools/remove', 'POST', { poolId });
   $('msg').textContent = r.ok ? `✓ ${name}` : r.error;
   refreshPools();
 }
 
 async function removeBot(index, name) {
-  if (!confirm(t('confirmRm', name))) return;
+  if (!(await uiConfirm(t('confirmRm', name)))) return;
   const r = await api('/api/bots/remove', 'POST', { index });
   $('msg').textContent = r.ok ? `bot ${index}: ${r.moved?.join(', ') || '—'}` : r.error;
   refreshBalances();
@@ -668,7 +711,7 @@ $('btnAddPool').onclick = async () => {
 };
 
 $('btnSweep').onclick = async () => {
-  if (!confirm(t('confirmSweep'))) return;
+  if (!(await uiConfirm(t('confirmSweep')))) return;
   $('msg').textContent = t('sweeping');
   const r = await api('/api/sweep', 'POST', {});
   $('msg').textContent = r.ok ? t('swept', r.results.length) : r.error;
@@ -686,7 +729,7 @@ async function loadRpcKeys() {
 }
 async function activateRpcKey(name) { await api('/api/rpc/activate', 'POST', { name }); loadRpcKeys(); }
 async function removeRpcKey(name) {
-  if (!confirm(t('rmKey'))) return;
+  if (!(await uiConfirm(t('rmKey')))) return;
   const r = await api('/api/rpc/remove', 'POST', { name });
   if (r.error) $('rpcStatus').textContent = '✗ ' + r.error;
   loadRpcKeys();
@@ -823,7 +866,7 @@ $('btnStart').onclick = async () => {
   let r = await api('/api/start', 'POST', {});
   if (!r.ok && r.checks) {
     $('pf').innerHTML = r.checks.map(c => `<div class="pf ${c.ok?'ok':'bad'}">${c.ok?'✓':'✗'} ${tMap('pfNames', c.name)}${c.detail?' — '+c.detail:''}</div>`).join('');
-    if (confirm(t('startAnyway'))) r = await api('/api/start', 'POST', { force: true });
+    if (await uiConfirm(t('startAnyway'))) r = await api('/api/start', 'POST', { force: true });
   }
   $('msg').textContent = r.ok ? t('pid', r.pid) : (r.error || '');
   refresh();
